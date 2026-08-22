@@ -9,6 +9,7 @@ import { errorHandler } from "./middlewares/error.middleware.js";
 const app = express();
 
 app.use(helmet());
+console.log("fiez alhag ");
 
 app.use(
   cors({

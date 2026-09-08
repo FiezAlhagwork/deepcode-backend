@@ -1,5 +1,5 @@
 import axios from "axios";
-import { env } from "../config/env.js";
+import { env } from "../../config/env.js";
 
 export const hardbrainClient = axios.create({
   baseURL: env.hardbrain.baseUrl,

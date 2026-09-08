@@ -2,16 +2,15 @@ import {
   fetchAccountInfo,
   fetchProducts,
   createOrder,
-} from "../services/hardbrain.js";
+} from "./reseller.service.js";
+import { sendSuccess } from "../../utils/apiResponse.js";
+import { AppError } from "../../utils/AppError.js";
 
 export const getAccount = async (req, res, next) => {
   try {
     const account = await fetchAccountInfo();
 
-    return res.status(200).json({
-      success: true,
-      data: account,
-    });
+    return sendSuccess(res, account);
   } catch (error) {
     next(error);
   }
@@ -27,10 +26,7 @@ export const getProducts = async (req, res, next) => {
 
     const products = await fetchProducts(filters);
 
-    return res.status(200).json({
-      success: true,
-      data: products,
-    });
+    return sendSuccess(res, products);
   } catch (error) {
     next(error);
   }
@@ -48,10 +44,7 @@ export const createCustomerOrder = async (req, res, next) => {
     } = req.body;
 
     if (!product_id || !customer_email) {
-      return res.status(400).json({
-        success: false,
-        message: "product_id and customer_email are required",
-      });
+      throw new AppError("product_id and customer_email are required", 400, "VALIDATION_ERROR");
     }
 
     const order = await createOrder({
@@ -63,10 +56,7 @@ export const createCustomerOrder = async (req, res, next) => {
       metadata,
     });
 
-    return res.status(201).json({
-      success: true,
-      data: order,
-    });
+    return sendSuccess(res, order, undefined, 201);
   } catch (error) {
     next(error);
   }

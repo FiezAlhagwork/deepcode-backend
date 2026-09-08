@@ -1,4 +1,4 @@
-import { hardbrainClient } from "../utils/hardbrain-client.js";
+import { hardbrainClient } from "./hardbrain-client.js";
 
 export const fetchAccountInfo = async () => {
   const { data } = await hardbrainClient.get("/account");

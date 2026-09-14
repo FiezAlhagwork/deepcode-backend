@@ -3,6 +3,7 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import { clerkMiddleware } from "@clerk/express";
+import { env } from "./config/env.js";
 import resellerRoutes from "./features/reseller/reseller.routes.js";
 import authRoutes from "./features/auth/auth.routes.js";
 import usersRoutes from "./features/users/user.routes.js";
@@ -16,12 +17,15 @@ const app = express();
 
 app.use(helmet());
 
-app.use(
-  cors({
-    origin: ["https://deepcodesolution.com", "https://www.deepcodesolution.com"],
-    credentials: true,
-  }),
-);
+// The localhost origin only ever ships in non-production environments — a
+// production deploy must never allow CORS from a local dev address.
+const corsOrigins = [
+  "https://deepcodesolution.com",
+  "https://www.deepcodesolution.com",
+  ...(env.nodeEnv !== "production" ? ["http://localhost:3000"] : []),
+];
+
+app.use(cors({ origin: corsOrigins, credentials: true }));
 
 // Mounted BEFORE express.json() below — Clerk's raw request body must reach
 // verifyWebhook() untouched for signature verification to be reliable (see

@@ -2,6 +2,7 @@ import { clerkClient } from "@clerk/express";
 import { User } from "./user.model.js";
 import { AppError } from "../../utils/AppError.js";
 import { buildSearchFilter } from "../../utils/search.js";
+import { env } from "../../config/env.js";
 
 const primaryEmailFrom = (userJson) => {
   const primary = userJson.email_addresses?.find(
@@ -82,6 +83,26 @@ export const getRoleByClerkId = async (clerkId) => {
   return user?.role ?? null;
 };
 
+// Backs GET /api/auth/me: returns the full local profile (including role)
+// for the calling Clerk session, or `{ synced: false }` if no active local
+// record exists yet — e.g. a webhook-sync gap right after sign-up, or a
+// deactivated account. Deliberately not an AppError/404: "not synced yet" is
+// a normal, expected state the frontend needs to branch on, not a failure.
+export const getMyProfile = async (clerkId) => {
+  const user = await User.findOne({ clerkId, status: "active" }).lean();
+  if (!user) return { synced: false };
+  return {
+    synced: true,
+    _id: user._id,
+    email: user.email,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    imageUrl: user.imageUrl,
+    role: user.role,
+    status: user.status,
+  };
+};
+
 export const listUsers = async ({ page, limit, q, role }) => {
   const filter = {
     status: "active",
@@ -101,6 +122,9 @@ export const inviteUser = async ({ email, role }) => {
     return await clerkClient.invitations.createInvitation({
       emailAddress: email,
       publicMetadata: { role },
+      // Without this, Clerk sends the invitee to its default /sign-up page
+      // instead of the frontend's dedicated accept-invitation screen.
+      redirectUrl: `${env.frontendUrl}/ar/accept-invitation`,
     });
   } catch (error) {
     throw new AppError(

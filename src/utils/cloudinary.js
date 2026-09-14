@@ -6,6 +6,7 @@ cloudinary.config({
   api_key: env.cloudinary.apiKey,
   api_secret: env.cloudinary.apiSecret,
   secure: true,
+  timeout: 120000,
 });
 
 // Shared by any feature that needs to upload an in-memory image buffer

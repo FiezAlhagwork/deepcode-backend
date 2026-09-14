@@ -14,6 +14,11 @@ export const env = {
   },
   mongodb: process.env.MONGODB_URI,
 
+  // No fail-fast here — the localhost default is fine for local dev; in
+  // production this must be set to the real site URL (used as the Clerk
+  // invitation redirect target and, indirectly, for CORS).
+  frontendUrl: process.env.FRONTEND_URL || "http://localhost:3000",
+
   clerk: {
     secretKey: process.env.CLERK_SECRET_KEY,
     publishableKey: process.env.CLERK_PUBLISHABLE_KEY,

@@ -32,6 +32,11 @@ export const env = {
   },
 };
 
+if (!env.mongodb) {
+  console.error("❌ Missing required env var: MONGODB_URI. The app cannot connect to the database.");
+  process.exit(1);
+}
+
 if (!env.clerk.secretKey) {
   console.error("❌ Missing required env var: CLERK_SECRET_KEY. Clerk auth will not function.");
   process.exit(1);

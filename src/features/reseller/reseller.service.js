@@ -11,11 +11,11 @@ export const fetchProducts = async (filters = {}) => {
     params: filters,
   });
 
-  return data;
-};
+  const products = Array.isArray(data) ? data : data?.data?.products;
 
-export const createOrder = async (orderData) => {
-  const { data } = await hardbrainClient.post("/orders", orderData);
+  if (Array.isArray(products)) {
+    products.sort((a, b) => a.base_price - b.base_price);
+  }
 
   return data;
 };

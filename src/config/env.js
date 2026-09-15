@@ -2,6 +2,8 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+const KNOWN_NODE_ENVS = new Set(["development", "production", "test"]);
+
 export const env = {
   nodeEnv: process.env.NODE_ENV || "development",
 
@@ -54,4 +56,27 @@ if (!env.cloudinary.cloudName || !env.cloudinary.apiKey || !env.cloudinary.apiSe
     "❌ Missing required env var(s): CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET. Image uploads will not function.",
   );
   process.exit(1);
+}
+
+// Not fail-fast (a typo'd/custom NODE_ENV shouldn't crash the process), but
+// loudly flagged: app.js's CORS localhost-origin allowlist gates purely on
+// `env.nodeEnv !== "production"`, so a misspelled/unset NODE_ENV in a real
+// production deploy (e.g. "produciton") would silently leave the localhost
+// dev origin allowed in production instead of failing safe.
+if (!KNOWN_NODE_ENVS.has(env.nodeEnv)) {
+  console.warn(
+    `⚠️  NODE_ENV is set to "${env.nodeEnv}", not one of ${[...KNOWN_NODE_ENVS].join("/")}. ` +
+      `This is treated as non-production (e.g. the CORS localhost origin stays allowed) — ` +
+      `if this is a production deploy, fix NODE_ENV to "production".`,
+  );
+}
+
+// Same reasoning as above: not fail-fast (localhost is a legitimate default
+// for local dev), but a silent localhost default in production breaks Clerk
+// invitation redirect links for real users, so it's worth a loud warning.
+if (env.nodeEnv === "production" && !process.env.FRONTEND_URL) {
+  console.warn(
+    "⚠️  FRONTEND_URL is not set in a production environment — Clerk invitation emails will " +
+      "redirect to http://localhost:3000 instead of the real site.",
+  );
 }

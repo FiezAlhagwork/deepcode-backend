@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
+import rateLimit from "express-rate-limit";
 import { clerkMiddleware } from "@clerk/express";
 import { env } from "./config/env.js";
 import resellerRoutes from "./features/reseller/reseller.routes.js";
@@ -14,6 +15,12 @@ import uploadsRoutes from "./features/uploads/upload.routes.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 
 const app = express();
+
+// Trust the first hop in front of the app (reverse proxy/load balancer) so
+// `req.ip`/`X-Forwarded-*` reflect the real client — required for
+// express-rate-limit (below) to key limits by actual client IP instead of
+// the proxy's IP in production. Harmless locally (no proxy present).
+app.set("trust proxy", 1);
 
 app.use(helmet());
 
@@ -32,11 +39,27 @@ app.use(cors({ origin: corsOrigins, credentials: true }));
 // webhook.routes.js's express.raw()).
 app.use("/api/webhooks", webhookRoutes);
 
-app.use(express.json());
+// Explicit, reviewed value — same as Express's own default, but stated on
+// purpose rather than relying on an implicit default.
+app.use(express.json({ limit: "100kb" }));
 
 app.use(morgan("dev"));
 
 app.use(clerkMiddleware());
+
+// Blanket, light API-wide throttle — a baseline against scripted abuse.
+// Feature-specific routes that need a tighter limit (e.g. reseller, which
+// proxies a billable external API) apply their own stricter limiter on top
+// of this one, inside that feature's own routes file.
+app.use(
+  "/api",
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+  }),
+);
 
 app.use("/api/reseller", resellerRoutes);
 app.use("/api/auth", authRoutes);

@@ -79,11 +79,31 @@ Copy this shape for every new confirmed endpoint:
 
 **Request Body / Params**: none
 
-**Success — `200`**:
+Returns the Clerk `userId` merged with the local profile (`user.service.js#getMyProfile`). `synced: false` means no active local `User` document exists yet for this Clerk identity — a temporary webhook-sync gap right after sign-up, or the local account is `deactivated`; the frontend should branch on `synced` rather than treat this as an error.
+
+**Success — `200` (synced)**:
 ```json
 {
   "success": true,
-  "data": { "userId": "user_xxx" }
+  "data": {
+    "userId": "user_xxx",
+    "synced": true,
+    "_id": "6a99520cb5a1c73e73f02862",
+    "email": "fiezalhag@gmail.com",
+    "firstName": "Fiez",
+    "lastName": "Alhag",
+    "imageUrl": "https://img.clerk.com/...",
+    "role": "super_admin",
+    "status": "active"
+  }
+}
+```
+
+**Success — `200` (not synced yet / deactivated)**:
+```json
+{
+  "success": true,
+  "data": { "userId": "user_xxx", "synced": false }
 }
 ```
 
@@ -340,7 +360,7 @@ Copy this shape for every new confirmed endpoint:
 ---
 
 ### `POST /api/projects`
-**Auth**: Bearer token, Role: `admin`, `super_admin`. **`multipart/form-data`, not JSON.**
+**Auth**: Bearer token, Role: `admin`, `super_admin`. **`multipart/form-data`, not JSON** — enforced (a JSON `Content-Type` is rejected with `400 INVALID_CONTENT_TYPE`, not silently accepted).
 
 **Request Body** (form-data fields):
 | Key | Type | Notes |
@@ -473,37 +493,7 @@ Thin wrapper around the external Hardbrain reseller API. None of these routes cu
   "data": []
 }
 ```
-`data` shape comes directly from the Hardbrain API's products response.
+`data` shape comes directly from the Hardbrain API's products response, i.e. `{ success, timestamp, data: { products: [...] } }` — the actual product list is the nested `data.data.products` array. That array is sorted ascending by `base_price` (lowest to highest) in-place before the response is returned.
 
 **Errors**:
-- `500` — `INTERNAL_ERROR` if the upstream Hardbrain API call fails
-
----
-
-### `POST /api/reseller/orders`
-**Auth**: None
-
-**Request Body**:
-```json
-{
-  "product_id": "required",
-  "customer_email": "required",
-  "customer_name": "optional",
-  "quantity": "optional",
-  "external_reference": "optional",
-  "metadata": "optional"
-}
-```
-
-**Success — `201`**:
-```json
-{
-  "success": true,
-  "data": {}
-}
-```
-`data` shape comes directly from the Hardbrain API's order-creation response.
-
-**Errors**:
-- `400` — `VALIDATION_ERROR`, missing `product_id` or `customer_email`
 - `500` — `INTERNAL_ERROR` if the upstream Hardbrain API call fails

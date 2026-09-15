@@ -1,15 +1,16 @@
 import multer from "multer";
 import { AppError } from "../../utils/AppError.js";
-import { uploadBufferToCloudinary } from "../../utils/cloudinary.js";
+import { uploadBufferToCloudinary, ALLOWED_IMAGE_MIME_TYPES } from "../../utils/cloudinary.js";
 import { Project } from "./project.model.js";
-
-const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 
 const upload = multer({
   storage: multer.memoryStorage(), // no disk writes — buffers streamed straight to Cloudinary
   limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB per file
   fileFilter: (req, file, cb) => {
-    if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
+    // Cheap, early rejection on the client-supplied Content-Type; the file's
+    // actual bytes are re-checked in uploadBufferToCloudinary() once the
+    // buffer is available, since this header alone is spoofable.
+    if (!ALLOWED_IMAGE_MIME_TYPES.has(file.mimetype)) {
       return cb(
         new AppError("Only JPEG, PNG, WEBP, or GIF images are allowed.", 400, "INVALID_FILE_TYPE"),
       );
@@ -53,9 +54,27 @@ const parseJsonField = (value, fieldName) => {
  *
  * On a PATCH with no new files/fields, the corresponding req.body key is
  * left untouched, so the existing partial-update semantics still apply.
+ *
+ * Content-Type is enforced strictly as multipart/form-data (not just
+ * expected by convention): a plain `application/json` request would already
+ * have had its body parsed into real objects/arrays by express.json() in
+ * app.js before it ever reaches here, letting a client set `req.body.gallery`
+ * directly — including a `publicId` of its own choosing, which
+ * removeGalleryImage() later trusts blindly when calling
+ * `cloudinary.uploader.destroy(...)`. Rejecting non-multipart requests here
+ * closes that off at the one chokepoint both POST and PATCH share, and
+ * `req.body.gallery` is additionally reset before every request so it can
+ * only ever be repopulated from this function's own upload logic below,
+ * never from a raw client-supplied field of any kind.
  */
 export const normalizeProjectMultipart = async (req, res, next) => {
   try {
+    if (!req.is("multipart/form-data")) {
+      throw new AppError("Expected multipart/form-data.", 400, "INVALID_CONTENT_TYPE");
+    }
+
+    delete req.body.gallery;
+
     const coverImageFile = req.files?.coverImage?.[0];
     if (coverImageFile) {
       const result = await uploadBufferToCloudinary(coverImageFile.buffer);

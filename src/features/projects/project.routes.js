@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../auth/clerk.middleware.js";
 import { validate } from "../../middlewares/validate.middleware.js";
+import { writeRateLimit } from "../../middlewares/writeRateLimit.middleware.js";
 import { uploadProjectImages, normalizeProjectMultipart } from "./project.multipart.js";
 import {
   createProjectSchema,
@@ -30,6 +31,7 @@ router.post(
   "/",
   requireAuth,
   requireRole("admin", "super_admin"),
+  writeRateLimit,
   uploadProjectImages,
   normalizeProjectMultipart,
   validate(createProjectSchema),
@@ -40,6 +42,7 @@ router.patch(
   "/:id",
   requireAuth,
   requireRole("admin", "super_admin"),
+  writeRateLimit,
   validate(projectIdParamSchema, "params"),
   uploadProjectImages,
   normalizeProjectMultipart,
@@ -51,6 +54,7 @@ router.delete(
   "/:id",
   requireAuth,
   requireRole("admin", "super_admin"),
+  writeRateLimit,
   validate(projectIdParamSchema, "params"),
   deleteProject,
 );
@@ -61,6 +65,7 @@ router.delete(
   "/:id/gallery/:imageId",
   requireAuth,
   requireRole("admin", "super_admin"),
+  writeRateLimit,
   validate(projectGalleryParamSchema, "params"),
   deleteGalleryImage,
 );

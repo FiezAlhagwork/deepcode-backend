@@ -2,7 +2,7 @@ import { z } from "zod";
 import { paginationQuerySchema } from "../../utils/pagination.js";
 
 export const inviteUserSchema = z.object({
-  email: z.string().email("A valid email address is required."),
+  email: z.string().email("A valid email address is required.").max(254, "Email is too long."),
   role: z.enum(["admin", "super_admin"]),
 });
 

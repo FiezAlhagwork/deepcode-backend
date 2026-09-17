@@ -13,6 +13,7 @@ import categoriesRoutes from "./features/categories/category.routes.js";
 import projectsRoutes from "./features/projects/project.routes.js";
 import uploadsRoutes from "./features/uploads/upload.routes.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
+import { sanitizeBody } from "./middlewares/sanitize.middleware.js";
 
 const app = express();
 
@@ -42,6 +43,11 @@ app.use("/api/webhooks", webhookRoutes);
 // Explicit, reviewed value — same as Express's own default, but stated on
 // purpose rather than relying on an implicit default.
 app.use(express.json({ limit: "100kb" }));
+
+// Defense-in-depth against Mongo operator injection (`$gt`, dotted-path
+// writes, etc.) in any JSON request body, independent of each route's own
+// Zod validation — see sanitize.middleware.js for the full reasoning.
+app.use(sanitizeBody);
 
 app.use(morgan("dev"));
 

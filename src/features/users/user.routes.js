@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../auth/clerk.middleware.js";
 import { validate } from "../../middlewares/validate.middleware.js";
+import { writeRateLimit } from "../../middlewares/writeRateLimit.middleware.js";
 import {
   inviteUserSchema,
   updateRoleSchema,
@@ -15,11 +16,18 @@ router.use(requireAuth);
 
 router.get("/", requireRole("admin", "super_admin"), validate(listUsersQuerySchema, "query"), getUsers);
 
-router.post("/", requireRole("super_admin"), validate(inviteUserSchema), createInvitedUser);
+router.post(
+  "/",
+  requireRole("super_admin"),
+  writeRateLimit,
+  validate(inviteUserSchema),
+  createInvitedUser,
+);
 
 router.patch(
   "/:id/role",
   requireRole("super_admin"),
+  writeRateLimit,
   validate(userIdParamSchema, "params"),
   validate(updateRoleSchema),
   patchUserRole,
@@ -28,6 +36,7 @@ router.patch(
 router.delete(
   "/:id",
   requireRole("super_admin"),
+  writeRateLimit,
   validate(userIdParamSchema, "params"),
   deleteUser,
 );

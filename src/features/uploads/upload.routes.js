@@ -1,6 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import { requireAuth, requireRole } from "../auth/clerk.middleware.js";
+import { writeRateLimit } from "../../middlewares/writeRateLimit.middleware.js";
 import { AppError } from "../../utils/AppError.js";
 import { ALLOWED_IMAGE_MIME_TYPES } from "../../utils/cloudinary.js";
 import { uploadImage } from "./upload.controller.js";
@@ -27,6 +28,7 @@ router.post(
   "/",
   requireAuth,
   requireRole("admin", "super_admin"),
+  writeRateLimit,
   upload.single("image"),
   uploadImage,
 );

@@ -4,12 +4,13 @@ import { paginationQuerySchema } from "../../utils/pagination.js";
 const slugSchema = z
   .string()
   .min(1, "Slug is required.")
+  .max(100, "Slug must be 100 characters or fewer.")
   .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "Slug must be lowercase kebab-case (e.g. web-apps).");
 
 export const createCategorySchema = z.object({
   name: z.object({
-    ar: z.string().min(1, "Arabic name is required."),
-    en: z.string().min(1, "English name is required."),
+    ar: z.string().min(1, "Arabic name is required.").max(200, "Arabic name must be 200 characters or fewer."),
+    en: z.string().min(1, "English name is required.").max(200, "English name must be 200 characters or fewer."),
   }),
   slug: slugSchema,
 });
@@ -19,8 +20,8 @@ export const updateCategorySchema = z
   .object({
     name: z
       .object({
-        ar: z.string().min(1).optional(),
-        en: z.string().min(1).optional(),
+        ar: z.string().min(1).max(200).optional(),
+        en: z.string().min(1).max(200).optional(),
       })
       .optional(),
     slug: slugSchema.optional(),

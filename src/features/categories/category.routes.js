@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../auth/clerk.middleware.js";
 import { validate } from "../../middlewares/validate.middleware.js";
+import { writeRateLimit } from "../../middlewares/writeRateLimit.middleware.js";
 import {
   createCategorySchema,
   updateCategorySchema,
@@ -25,6 +26,7 @@ router.post(
   "/",
   requireAuth,
   requireRole("admin", "super_admin"),
+  writeRateLimit,
   validate(createCategorySchema),
   createCategory,
 );
@@ -33,6 +35,7 @@ router.patch(
   "/:id",
   requireAuth,
   requireRole("admin", "super_admin"),
+  writeRateLimit,
   validate(categoryIdParamSchema, "params"),
   validate(updateCategorySchema),
   updateCategory,
@@ -42,6 +45,7 @@ router.delete(
   "/:id",
   requireAuth,
   requireRole("admin", "super_admin"),
+  writeRateLimit,
   validate(categoryIdParamSchema, "params"),
   deleteCategory,
 );

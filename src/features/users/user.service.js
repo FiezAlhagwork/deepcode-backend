@@ -83,6 +83,15 @@ export const getRoleByClerkId = async (clerkId) => {
   return user?.role ?? null;
 };
 
+// Returns the full local User doc (or null) for the calling Clerk session.
+// Used by any feature that needs to reference the stable local `_id` rather
+// than the raw Clerk `clerkId` — e.g. `requests`, so a submitted request
+// stays linked to the same person even if their Clerk account is ever
+// deleted and re-created (upsertUser above re-links the same local `_id` to
+// the new clerkId instead of creating a disconnected duplicate).
+export const getActiveUserByClerkId = (clerkId) =>
+  User.findOne({ clerkId, status: "active" }).lean();
+
 // Backs GET /api/auth/me: returns the full local profile (including role)
 // for the calling Clerk session, or `{ synced: false }` if no active local
 // record exists yet — e.g. a webhook-sync gap right after sign-up, or a

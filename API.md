@@ -458,6 +458,173 @@ Both `coverImage` and each `gallery` file are uploaded to Cloudinary server-side
 - `400` — `WEBHOOK_VERIFICATION_FAILED`, signature invalid or missing signing secret
 - `422` — `MISSING_EMAIL`, the Clerk user event has no email address to sync
 
+## Requests
+
+Locally-stored server-plan requests — a lead for the team to follow up on manually, not a live order sent to Hardbrain (see `POST /api/reseller/orders` in the Reseller section below, which was removed for exactly that reason).
+
+### `GET /api/requests`
+**Auth**: Bearer token, any authenticated user (no role restriction). What's returned depends on the caller's role: `admin`/`super_admin` see every request; anyone else sees only requests they submitted themselves — enforced server-side, not controllable by any query param.
+
+**Request Body / Params**: optional query `?page=&limit=` (see Pagination above), plus `?status=pending|contacted`
+
+**Success — `200`**:
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "_id": "6ab2f26c9d34fb1ec2708125",
+      "user": { "_id": "6aa7ee1a5fbab626685f354b", "email": "a@example.com", "firstName": "A", "lastName": "B" },
+      "productId": "5484aa99-36c1-44cd-beeb-e4c5582055c4",
+      "productName": "2026 Sale - Big",
+      "productPrice": 27.97,
+      "productBasePrice": 32.91,
+      "billingCycle": "monthly",
+      "requestType": "purchase",
+      "phone": "+962791234567",
+      "notes": null,
+      "status": "pending",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "pagination": { "page": 1, "limit": 10, "total": 1, "totalPages": 1 }
+}
+```
+
+**Errors**:
+- `401` — `UNAUTHENTICATED`
+- `400` — `VALIDATION_ERROR`, invalid `page`/`limit`/`status`
+
+---
+
+### `POST /api/requests`
+**Auth**: Bearer token, any authenticated user (no role restriction). Rate-limited to 10 requests/day per account (keyed by the caller's Clerk `userId`, not IP).
+
+**Request Body**:
+```json
+{
+  "productId": "5484aa99-36c1-44cd-beeb-e4c5582055c4",
+  "productName": "2026 Sale - Big",
+  "productPrice": 27.97,
+  "productBasePrice": 32.91,
+  "billingCycle": "monthly",
+  "requestType": "purchase",
+  "phone": "+962791234567",
+  "notes": "optional"
+}
+```
+`productId`/`productName`/`productPrice`/`billingCycle` are a snapshot of whatever product the client had in front of it (from `GET /api/reseller/products`) — not re-verified against Hardbrain's live catalog. `requestType` is `purchase` or `inquiry`. `user`/`status` are never accepted from the client — `user` is derived from the session, `status` always starts as `pending`.
+
+**Success — `201`**: the created request document. Note `user` here is the **raw `User._id` string**, not populated (unlike `GET /api/requests`'s list items, which populate `user` with `{_id, email, firstName, lastName}`) — confirmed against a live request:
+```json
+{
+  "success": true,
+  "data": {
+    "user": "6aa7ee1a5fbab626685f354b",
+    "productId": "test-product-1",
+    "productName": "Test VPS Plan",
+    "productPrice": 9.99,
+    "productBasePrice": 12.99,
+    "billingCycle": "monthly",
+    "requestType": "purchase",
+    "phone": "+962791234567",
+    "notes": "live endpoint test",
+    "status": "pending",
+    "_id": "6ab2f6d3b22f4b77e07ede28",
+    "createdAt": "2026-09-22T21:44:51.016Z",
+    "updatedAt": "2026-09-22T21:44:51.016Z",
+    "__v": 0
+  },
+  "message": "Request submitted."
+}
+```
+
+**Errors**:
+- `401` — `UNAUTHENTICATED`
+- `429` — rate limit exceeded (10/day)
+- `409` — `ACCOUNT_NOT_SYNCED` — the caller's local profile hasn't finished syncing yet (rare webhook-timing gap right after sign-up); safe to retry shortly
+- `400` — `VALIDATION_ERROR`
+
+---
+
+### `PATCH /api/requests/:id/status`
+**Auth**: Bearer token, Role: `admin`, `super_admin`. `:id` is the request's MongoDB `_id`.
+
+**Request Body**:
+```json
+{ "status": "contacted" }
+```
+
+**Success — `200`**: the updated request document.
+
+**Errors**:
+- `401` — `UNAUTHENTICATED`
+- `403` — `FORBIDDEN`
+- `400` — `VALIDATION_ERROR`
+- `404` — `REQUEST_NOT_FOUND`
+
+## Contact
+
+Public "contact us" form — no login required. Stored locally as a lead for the team to follow up on manually (same `pending`/`contacted` lifecycle as `requests`, but no `user` ref — the submitter may not have an account).
+
+### `POST /api/contact`
+**Auth**: None (public). Rate-limited to 5 requests/hour per IP.
+
+**Request Body**:
+```json
+{
+  "name": "Jane Doe",
+  "email": "jane@example.com",
+  "phone": "+962791234567",
+  "message": "I'd like to ask about your hosting plans."
+}
+```
+`phone` must be a full international number (leading `+`, e.g. compose it from a country-code selector on the frontend) — see the Phone Numbers note at the end of this section. `email`/`phone`/`message` are all required.
+
+The request body also accepts an optional `website` field — **this is a honeypot, not a real field.** It must stay empty and hidden (e.g. `display:none` / off-screen positioning) on the frontend; a filled value is treated as a bot and the message is silently discarded (the response still looks like a normal success, so don't rely on the response shape to detect this — check your database if a submission seems to have vanished).
+
+**Success — `201`**: the created contact message document (or `data: null` if the honeypot caught it — indistinguishable from a real success on purpose).
+
+**Errors**:
+- `429` — rate limit exceeded (5/hour)
+- `400` — `VALIDATION_ERROR`
+
+---
+
+### `GET /api/contact`
+**Auth**: Bearer token, Role: `admin`, `super_admin`
+
+**Request Body / Params**: optional query `?page=&limit=` (see Pagination above), plus `?status=pending|contacted`
+
+**Success — `200`**: paginated list of contact messages (same shape as the `POST` request body, plus `_id`/`status`/`createdAt`/`updatedAt`).
+
+**Errors**:
+- `401` — `UNAUTHENTICATED`
+- `403` — `FORBIDDEN`
+- `400` — `VALIDATION_ERROR`
+
+---
+
+### `PATCH /api/contact/:id/status`
+**Auth**: Bearer token, Role: `admin`, `super_admin`. `:id` is the message's MongoDB `_id`.
+
+**Request Body**:
+```json
+{ "status": "contacted" }
+```
+
+**Success — `200`**: the updated contact message document.
+
+**Errors**:
+- `401` — `UNAUTHENTICATED`
+- `403` — `FORBIDDEN`
+- `400` — `VALIDATION_ERROR`
+- `404` — `CONTACT_NOT_FOUND`
+
+---
+
+**Phone numbers** (`requests` and `contact` both): validated and normalized via `libphonenumber-js` — a number must include its country code (`+...`); a bare local-format number (e.g. `0791234567` with no `+962`) is rejected, not guessed at. Whatever valid format is submitted (spaces, dashes, parens) is stored normalized to E.164 (e.g. `+962791234567`).
+
 ## Reseller
 
 Thin wrapper around the external Hardbrain reseller API. None of these routes currently require authentication.

@@ -12,6 +12,8 @@ import webhookRoutes from "./features/users/webhook.routes.js";
 import categoriesRoutes from "./features/categories/category.routes.js";
 import projectsRoutes from "./features/projects/project.routes.js";
 import uploadsRoutes from "./features/uploads/upload.routes.js";
+import requestsRoutes from "./features/requests/request.routes.js";
+import contactRoutes from "./features/contact/contact.routes.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 import { sanitizeBody } from "./middlewares/sanitize.middleware.js";
 
@@ -73,6 +75,8 @@ app.use("/api/users", usersRoutes);
 app.use("/api/categories", categoriesRoutes);
 app.use("/api/projects", projectsRoutes);
 app.use("/api/uploads", uploadsRoutes);
+app.use("/api/requests", requestsRoutes);
+app.use("/api/contact", contactRoutes);
 
 app.use(errorHandler);
 

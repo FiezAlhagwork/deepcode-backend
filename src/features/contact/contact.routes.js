@@ -2,6 +2,7 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { requireAuth, requireRole } from "../auth/clerk.middleware.js";
 import { validate } from "../../middlewares/validate.middleware.js";
+import { writeRateLimit } from "../../middlewares/writeRateLimit.middleware.js";
 import {
   createContactSchema,
   updateContactStatusSchema,
@@ -40,6 +41,7 @@ router.patch(
   "/:id/status",
   requireAuth,
   requireRole("admin", "super_admin"),
+  writeRateLimit,
   validate(contactIdParamSchema, "params"),
   validate(updateContactStatusSchema),
   updateContactStatus,

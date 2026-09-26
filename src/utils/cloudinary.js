@@ -46,4 +46,17 @@ export const uploadBufferToCloudinary = async (buffer, options = {}) => {
   });
 };
 
+// Best-effort bulk delete: an orphaned asset is only a minor storage cost, so
+// a Cloudinary failure here is logged, never thrown — callers use this for
+// cleanup after the database change they actually care about has happened.
+export const destroyCloudinaryAssets = async (publicIds) => {
+  const ids = publicIds.filter(Boolean);
+  const results = await Promise.allSettled(ids.map((id) => cloudinary.uploader.destroy(id)));
+  results.forEach((result, i) => {
+    if (result.status === "rejected") {
+      console.error(`Failed to delete Cloudinary asset ${ids[i]}:`, result.reason?.message);
+    }
+  });
+};
+
 export { cloudinary };

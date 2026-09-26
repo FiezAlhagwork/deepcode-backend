@@ -46,6 +46,8 @@ Authorization: Bearer <token>
 
 Roles (`super_admin`, `admin`, `user`) are stored in this app's own MongoDB, not in Clerk — see [CLAUDE.md → Auth & Roles](CLAUDE.md#auth--roles). A `401` means no/invalid session; a `403` means a valid session with an insufficient role.
 
+Any path that matches no route returns `404` — `ROUTE_NOT_FOUND` in the standard error shape (not Express's default HTML page).
+
 ## Entry Template
 
 Copy this shape for every new confirmed endpoint:
@@ -205,12 +207,14 @@ Returns the Clerk `userId` merged with the local profile (`user.service.js#getMy
 - `401` — `UNAUTHENTICATED`
 - `403` — `FORBIDDEN`, caller is not `super_admin`
 - `400` — `VALIDATION_ERROR`, `:id` is not a valid ObjectId or `role` is not a valid enum value
-- `404` — `USER_NOT_FOUND`
+- `404` — `USER_NOT_FOUND` (also for a `deactivated` user)
+- `409` — `CANNOT_MODIFY_SELF`, the caller tried to change their own role
+- `409` — `LAST_SUPER_ADMIN`, this would demote the last active `super_admin`
 
 ---
 
 ### `DELETE /api/users/:id`
-**Auth**: Bearer token, Role: `super_admin` only. `:id` is the MongoDB `_id`, not the Clerk `clerkId`. Soft-delete only — sets `status: "deactivated"`, does **not** touch the Clerk account.
+**Auth**: Bearer token, Role: `super_admin` only. `:id` is the MongoDB `_id`, not the Clerk `clerkId`. Soft-delete only — sets `status: "deactivated"`, does **not** touch the Clerk account. The removal is sticky: later Clerk profile updates (`user.updated`), a delete-and-re-sign-up with the same email, or `npm run backfill:users` never reactivate it.
 
 **Request Body / Params**: none besides `:id`
 
@@ -230,7 +234,8 @@ Returns the Clerk `userId` merged with the local profile (`user.service.js#getMy
 - `401` — `UNAUTHENTICATED`
 - `403` — `FORBIDDEN`, caller is not `super_admin`
 - `400` — `VALIDATION_ERROR`, `:id` is not a valid ObjectId
-- `404` — `USER_NOT_FOUND`
+- `404` — `USER_NOT_FOUND` (also for an already-`deactivated` user)
+- `409` — `CANNOT_MODIFY_SELF` / `LAST_SUPER_ADMIN`, same as the role endpoint above
 
 ## Categories
 
@@ -389,7 +394,7 @@ Both `coverImage` and each `gallery` file are uploaded to Cloudinary server-side
 ---
 
 ### `PATCH /api/projects/:id`
-**Auth**: Bearer token, Role: `admin`, `super_admin`. `:id` is the MongoDB `_id`. Same `multipart/form-data` shape as `POST`, but every field is optional — send only what's changing. Omitting `coverImage` leaves it untouched.
+**Auth**: Bearer token, Role: `admin`, `super_admin`. `:id` is the MongoDB `_id`. Same `multipart/form-data` shape as `POST`, but every field is optional — send only what's changing (at least one field or one new `gallery` file). Omitting `coverImage` leaves it untouched; uploading a new one also deletes the old cover asset from Cloudinary.
 
 **Gallery is additive, never replaced**: sending new `gallery` files **appends** them after whatever is already saved (order continues from the current max) — it never wipes out existing images. There is no "send the whole gallery to replace it" shape. To remove one specific existing image, use `DELETE /api/projects/:id/gallery/:imageId` below.
 
@@ -400,7 +405,7 @@ Both `coverImage` and each `gallery` file are uploaded to Cloudinary server-side
 ---
 
 ### `DELETE /api/projects/:id`
-**Auth**: Bearer token, Role: `admin`, `super_admin`. **Hard delete** (unlike `users`' soft-delete).
+**Auth**: Bearer token, Role: `admin`, `super_admin`. **Hard delete** (unlike `users`' soft-delete). Also best-effort deletes the project's cover and gallery assets from Cloudinary.
 
 **Success — `200`**: the deleted project document.
 
@@ -583,7 +588,7 @@ Public "contact us" form — no login required. Stored locally as a lead for the
 
 The request body also accepts an optional `website` field — **this is a honeypot, not a real field.** It must stay empty and hidden (e.g. `display:none` / off-screen positioning) on the frontend; a filled value is treated as a bot and the message is silently discarded (the response still looks like a normal success, so don't rely on the response shape to detect this — check your database if a submission seems to have vanished).
 
-**Success — `201`**: the created contact message document (or `data: null` if the honeypot caught it — indistinguishable from a real success on purpose).
+**Success — `201`**: `data: null` with message `"Message received."` — identical whether the message was stored or the honeypot caught it, on purpose (the created document is not echoed back).
 
 **Errors**:
 - `429` — rate limit exceeded (5/hour)
@@ -627,10 +632,10 @@ The request body also accepts an optional `website` field — **this is a honeyp
 
 ## Reseller
 
-Thin wrapper around the external Hardbrain reseller API. None of these routes currently require authentication.
+Thin wrapper around the external Hardbrain reseller API. `/products` is public; `/account` is admin-only.
 
 ### `GET /api/reseller/account`
-**Auth**: None
+**Auth**: Bearer token, Role: `admin`, `super_admin`
 
 **Request Body / Params**: none
 
@@ -644,7 +649,9 @@ Thin wrapper around the external Hardbrain reseller API. None of these routes cu
 `data` shape comes directly from the Hardbrain API's account-info response.
 
 **Errors**:
-- `500` — `INTERNAL_ERROR` if the upstream Hardbrain API call fails
+- `401` — `UNAUTHENTICATED`
+- `403` — `FORBIDDEN`
+- `502` — `UPSTREAM_ERROR` if the upstream Hardbrain API call fails
 
 ---
 
@@ -663,4 +670,4 @@ Thin wrapper around the external Hardbrain reseller API. None of these routes cu
 `data` shape comes directly from the Hardbrain API's products response, i.e. `{ success, timestamp, data: { products: [...] } }` — the actual product list is the nested `data.data.products` array. That array is sorted ascending by `base_price` (lowest to highest) in-place before the response is returned.
 
 **Errors**:
-- `500` — `INTERNAL_ERROR` if the upstream Hardbrain API call fails
+- `502` — `UPSTREAM_ERROR` if the upstream Hardbrain API call fails

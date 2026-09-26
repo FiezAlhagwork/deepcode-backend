@@ -38,6 +38,8 @@ export const createProjectSchema = z.object({
   slug: slugSchema,
   description: bilingualDescription,
   coverImage: urlSchema,
+  // Server-injected by project.multipart.js, same reason as galleryItemSchema's publicId.
+  coverImagePublicId: z.string().max(200).optional(),
   gallery: z.array(galleryItemSchema).optional().default([]),
   links: z.array(linkSchema).optional().default([]),
   category: objectIdSchema,
@@ -46,22 +48,22 @@ export const createProjectSchema = z.object({
   order: z.coerce.number().optional().default(0),
 });
 
-// PATCH semantics: every field optional, but the body must not be empty.
-export const updateProjectSchema = z
-  .object({
-    name: bilingual.optional(),
-    slug: slugSchema.optional(),
-    description: bilingualDescription.optional(),
-    coverImage: urlSchema.optional(),
-    gallery: z.array(galleryItemSchema).optional(),
-    links: z.array(linkSchema).optional(),
-    category: objectIdSchema.optional(),
-    status: z.enum(["draft", "published"]).optional(),
-    order: z.coerce.number().optional(),
-  })
-  .refine((data) => Object.keys(data).length > 0, {
-    message: "At least one field must be provided to update.",
-  });
+// PATCH semantics: every field optional. No `gallery` here — new gallery
+// files travel on req.newGalleryItems (see project.multipart.js), which is
+// also why the "body must not be empty" check lives in
+// project.service.js#updateProject instead of a .refine() here: a PATCH that
+// only uploads gallery images has an empty body but is still a real update.
+export const updateProjectSchema = z.object({
+  name: bilingual.optional(),
+  slug: slugSchema.optional(),
+  description: bilingualDescription.optional(),
+  coverImage: urlSchema.optional(),
+  coverImagePublicId: z.string().max(200).optional(),
+  links: z.array(linkSchema).optional(),
+  category: objectIdSchema.optional(),
+  status: z.enum(["draft", "published"]).optional(),
+  order: z.coerce.number().optional(),
+});
 
 export const projectIdParamSchema = z.object({ id: objectIdSchema });
 

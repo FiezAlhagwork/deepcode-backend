@@ -14,8 +14,11 @@ export const createContactMessage = async (req, res, next) => {
       return sendSuccess(res, null, "Message received.", 201);
     }
 
-    const message = await contactService.createContactMessage(data);
-    return sendSuccess(res, message, "Message received.", 201);
+    await contactService.createContactMessage(data);
+    // Same `data: null` as the honeypot branch above — returning the created
+    // document here would let a bot tell the two apart, and an anonymous
+    // submitter has no use for it anyway.
+    return sendSuccess(res, null, "Message received.", 201);
   } catch (error) {
     next(error);
   }

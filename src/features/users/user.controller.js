@@ -1,3 +1,4 @@
+import { getAuth } from "@clerk/express";
 import { sendSuccess } from "../../utils/apiResponse.js";
 import { buildPaginationMeta } from "../../utils/pagination.js";
 import { listUsers, inviteUser, updateUserRole, removeUser } from "./user.service.js";
@@ -24,7 +25,7 @@ export const createInvitedUser = async (req, res, next) => {
 
 export const patchUserRole = async (req, res, next) => {
   try {
-    const user = await updateUserRole(req.params.id, req.body.role);
+    const user = await updateUserRole(req.params.id, req.body.role, getAuth(req).userId);
     return sendSuccess(res, user, "Role updated.");
   } catch (error) {
     next(error);
@@ -33,7 +34,7 @@ export const patchUserRole = async (req, res, next) => {
 
 export const deleteUser = async (req, res, next) => {
   try {
-    const user = await removeUser(req.params.id);
+    const user = await removeUser(req.params.id, getAuth(req).userId);
     return sendSuccess(res, user, "User removed.");
   } catch (error) {
     next(error);

@@ -38,12 +38,19 @@ export const upsertUser = async ({ clerkId, email, firstName, lastName, imageUrl
     firstName,
     lastName,
     imageUrl,
-    status: "active", // any fresh event/backfill hit reactivates a soft-deleted doc
     lastSyncedAt: new Date(),
   };
 
   if (existing) {
     existing.set(profileFields);
+    // A fresh event/backfill hit reactivates a doc only if it was deactivated
+    // because its Clerk account was deleted (the re-sign-up case above). An
+    // admin removal is sticky — otherwise any profile edit in Clerk
+    // (user.updated) would silently restore a removed user's access.
+    if (existing.deactivatedBy !== "admin") {
+      existing.status = "active";
+      existing.deactivatedBy = null;
+    }
     return existing.save();
   }
 
@@ -75,8 +82,13 @@ export const upsertUserFromClerkEvent = async (userJson) => {
 // Soft-delete: revokes local role/access immediately without touching the
 // Clerk identity itself — deleting a Clerk account entirely is a separate,
 // more destructive action left to the Clerk Dashboard if truly needed.
+// Only touches an active doc, so an earlier admin removal keeps its
+// `deactivatedBy: "admin"` marker and stays sticky across re-sign-up.
 export const deleteUserByClerkId = (clerkId) =>
-  User.findOneAndUpdate({ clerkId }, { status: "deactivated" });
+  User.findOneAndUpdate(
+    { clerkId, status: "active" },
+    { status: "deactivated", deactivatedBy: "clerk" },
+  );
 
 export const getRoleByClerkId = async (clerkId) => {
   const user = await User.findOne({ clerkId, status: "active" }).select("role").lean();
@@ -144,15 +156,43 @@ export const inviteUser = async ({ email, role }) => {
   }
 };
 
-export const updateUserRole = async (id, role) => {
-  const user = await User.findByIdAndUpdate(id, { role }, { new: true });
+// Guards shared by updateUserRole/removeUser: a super_admin can never demote
+// or remove their own account, and the last active super_admin can never be
+// demoted/removed by anyone — either would lock the app out of all
+// super_admin actions, recoverable only by a manual MongoDB edit.
+const loadManageableUser = async (id, actingClerkId) => {
+  const user = await User.findOne({ _id: id, status: "active" });
   if (!user) throw new AppError("User not found.", 404, "USER_NOT_FOUND");
+
+  if (user.clerkId === actingClerkId) {
+    throw new AppError("You cannot change or remove your own account.", 409, "CANNOT_MODIFY_SELF");
+  }
   return user;
 };
 
-export const removeUser = async (id) => {
-  const user = await User.findById(id);
-  if (!user) throw new AppError("User not found.", 404, "USER_NOT_FOUND");
+const assertNotLastSuperAdmin = async (user) => {
+  if (user.role !== "super_admin") return;
+  const remaining = await User.countDocuments({
+    role: "super_admin",
+    status: "active",
+    _id: { $ne: user._id },
+  });
+  if (remaining === 0) {
+    throw new AppError("Cannot remove the last super_admin.", 409, "LAST_SUPER_ADMIN");
+  }
+};
+
+export const updateUserRole = async (id, role, actingClerkId) => {
+  const user = await loadManageableUser(id, actingClerkId);
+  if (role !== "super_admin") await assertNotLastSuperAdmin(user);
+  user.role = role;
+  return user.save();
+};
+
+export const removeUser = async (id, actingClerkId) => {
+  const user = await loadManageableUser(id, actingClerkId);
+  await assertNotLastSuperAdmin(user);
   user.status = "deactivated";
+  user.deactivatedBy = "admin";
   return user.save();
 };

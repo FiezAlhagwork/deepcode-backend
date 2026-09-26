@@ -1,7 +1,9 @@
 import { Router } from "express";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import { getAuth } from "@clerk/express";
 import { requireAuth, requireRole } from "../auth/clerk.middleware.js";
 import { validate } from "../../middlewares/validate.middleware.js";
+import { writeRateLimit } from "../../middlewares/writeRateLimit.middleware.js";
 import {
   createRequestSchema,
   updateRequestStatusSchema,
@@ -27,7 +29,10 @@ const requestCreateLimiter = rateLimit({
   // so a caller can't dodge the fallback by cycling through addresses
   // within their own IPv6 block — express-rate-limit requires it for any
   // custom keyGenerator that falls back to req.ip.
-  keyGenerator: (req) => req.auth?.userId ?? ipKeyGenerator(req.ip),
+  // getAuth(req), not `req.auth?.userId` — in @clerk/express v2 `req.auth` is
+  // a function, so reading `.userId` off it is always undefined and silently
+  // turns this into a plain per-IP limiter.
+  keyGenerator: (req) => getAuth(req).userId ?? ipKeyGenerator(req.ip),
 });
 
 router.post(
@@ -47,6 +52,7 @@ router.patch(
   "/:id/status",
   requireAuth,
   requireRole("admin", "super_admin"),
+  writeRateLimit,
   validate(requestIdParamSchema, "params"),
   validate(updateRequestStatusSchema),
   updateRequestStatus,

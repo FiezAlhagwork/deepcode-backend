@@ -23,7 +23,14 @@ export const handleClerkWebhook = async (req, res, next) => {
     switch (event.type) {
       case "user.created":
       case "user.updated":
-        await upsertUserFromClerkEvent(event.data);
+        try {
+          await upsertUserFromClerkEvent(event.data);
+        } catch (error) {
+          // A user with no email can never sync, and Clerk retries any non-2xx
+          // for days — log it and still ack instead of looping on it.
+          if (error.code !== "MISSING_EMAIL") throw error;
+          console.warn(`⚠️  ${error.message} Skipping.`);
+        }
         break;
       case "user.deleted":
         await deleteUserByClerkId(event.data.id);

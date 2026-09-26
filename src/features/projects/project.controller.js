@@ -70,7 +70,11 @@ export const createProject = async (req, res, next) => {
 
 export const updateProject = async (req, res, next) => {
   try {
-    const project = await projectService.updateProject(req.params.id, req.body);
+    const project = await projectService.updateProject(
+      req.params.id,
+      req.body,
+      req.newGalleryItems,
+    );
     return sendSuccess(res, project, "Project updated.");
   } catch (error) {
     next(error);

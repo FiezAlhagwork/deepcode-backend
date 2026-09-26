@@ -16,6 +16,7 @@ import requestsRoutes from "./features/requests/request.routes.js";
 import contactRoutes from "./features/contact/contact.routes.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 import { sanitizeBody } from "./middlewares/sanitize.middleware.js";
+import { AppError } from "./utils/AppError.js";
 
 const app = express();
 
@@ -51,7 +52,7 @@ app.use(express.json({ limit: "100kb" }));
 // Zod validation — see sanitize.middleware.js for the full reasoning.
 app.use(sanitizeBody);
 
-app.use(morgan("dev"));
+app.use(morgan(env.nodeEnv === "production" ? "combined" : "dev"));
 
 app.use(clerkMiddleware());
 
@@ -77,6 +78,12 @@ app.use("/api/projects", projectsRoutes);
 app.use("/api/uploads", uploadsRoutes);
 app.use("/api/requests", requestsRoutes);
 app.use("/api/contact", contactRoutes);
+
+// Unmatched routes — without this, Express answers with its default HTML
+// "Cannot GET ..." page instead of the standard JSON error shape.
+app.use((req, res, next) => {
+  next(new AppError("Route not found.", 404, "ROUTE_NOT_FOUND"));
+});
 
 app.use(errorHandler);
 

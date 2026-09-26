@@ -2,7 +2,11 @@ import { Router } from "express";
 import { requireAuth, requireRole } from "../auth/clerk.middleware.js";
 import { validate } from "../../middlewares/validate.middleware.js";
 import { writeRateLimit } from "../../middlewares/writeRateLimit.middleware.js";
-import { uploadProjectImages, normalizeProjectMultipart } from "./project.multipart.js";
+import {
+  uploadProjectImages,
+  normalizeProjectMultipart,
+  cleanupProjectUploads,
+} from "./project.multipart.js";
 import {
   createProjectSchema,
   updateProjectSchema,
@@ -69,5 +73,7 @@ router.delete(
   validate(projectGalleryParamSchema, "params"),
   deleteGalleryImage,
 );
+
+router.use(cleanupProjectUploads);
 
 export default router;

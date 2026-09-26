@@ -1,6 +1,6 @@
 import { AppError } from "../../utils/AppError.js";
 import { buildSearchFilter } from "../../utils/search.js";
-import { cloudinary } from "../../utils/cloudinary.js";
+import { cloudinary, destroyCloudinaryAssets } from "../../utils/cloudinary.js";
 import { Project } from "./project.model.js";
 import { Category } from "../categories/category.model.js";
 
@@ -56,23 +56,55 @@ export const createProject = async (data) => {
   return Project.create(data);
 };
 
-export const updateProject = async (id, data) => {
+// `newGalleryItems` ({image, publicId} each) are appended with an atomic
+// $push, never by rewriting the whole array — so a concurrent PATCH or
+// gallery-image DELETE can't be lost or silently undone by this one.
+export const updateProject = async (id, data, newGalleryItems = []) => {
+  if (Object.keys(data).length === 0 && newGalleryItems.length === 0) {
+    throw new AppError("At least one field must be provided to update.", 400, "VALIDATION_ERROR");
+  }
+
+  const existing = await Project.findById(id).select("coverImagePublicId gallery.order").lean();
+  if (!existing) throw new AppError("Project not found.", 404, "PROJECT_NOT_FOUND");
+
   if (data.category) await assertCategoryExists(data.category);
 
-  const project = await Project.findByIdAndUpdate(id, data, {
+  const update = Object.keys(data).length ? { $set: data } : {};
+  if (newGalleryItems.length) {
+    const startOrder = existing.gallery.reduce((max, item) => Math.max(max, item.order), 0);
+    update.$push = {
+      gallery: {
+        $each: newGalleryItems.map((item, index) => ({ ...item, order: startOrder + index + 1 })),
+      },
+    };
+  }
+
+  const project = await Project.findByIdAndUpdate(id, update, {
     new: true,
     runValidators: true,
   });
   if (!project) throw new AppError("Project not found.", 404, "PROJECT_NOT_FOUND");
+
+  // The cover was replaced — its old asset is no longer referenced anywhere.
+  if (data.coverImagePublicId && existing.coverImagePublicId !== data.coverImagePublicId) {
+    await destroyCloudinaryAssets([existing.coverImagePublicId]);
+  }
+
   return project;
 };
 
 // Hard delete — unlike the `users` feature's soft-delete, a Project has no
 // referential-integrity or audit-history requirement (nothing else
-// foreign-keys to it), so removing it from the site should actually remove it.
+// foreign-keys to it), so removing it from the site should actually remove it
+// — including its cover/gallery assets on Cloudinary.
 export const deleteProject = async (id) => {
   const project = await Project.findByIdAndDelete(id);
   if (!project) throw new AppError("Project not found.", 404, "PROJECT_NOT_FOUND");
+
+  await destroyCloudinaryAssets([
+    project.coverImagePublicId,
+    ...project.gallery.map((item) => item.publicId),
+  ]);
   return project;
 };
 

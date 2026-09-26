@@ -43,6 +43,9 @@ const projectSchema = new Schema(
       en: { type: String, required: true },
     },
     coverImage: { type: String, required: true },
+    // Cloudinary public_id of coverImage — lets a replaced cover or a deleted
+    // project clean up its asset. Optional: older records predate this field.
+    coverImagePublicId: { type: String },
     gallery: { type: [gallerySchema], default: [] },
     links: { type: [linkSchema], default: [] },
     category: { type: Schema.Types.ObjectId, ref: "Category", required: true },
@@ -51,5 +54,10 @@ const projectSchema = new Schema(
   },
   { timestamps: true },
 );
+
+// Matches the public list query (status filter + order/createdAt sort) and
+// the category filter / CATEGORY_IN_USE check.
+projectSchema.index({ status: 1, order: 1, createdAt: -1 });
+projectSchema.index({ category: 1 });
 
 export const Project = model("Project", projectSchema);

@@ -1,7 +1,10 @@
 import multer from "multer";
 import { AppError } from "../../utils/AppError.js";
-import { uploadBufferToCloudinary, ALLOWED_IMAGE_MIME_TYPES } from "../../utils/cloudinary.js";
-import { Project } from "./project.model.js";
+import {
+  uploadBufferToCloudinary,
+  destroyCloudinaryAssets,
+  ALLOWED_IMAGE_MIME_TYPES,
+} from "../../utils/cloudinary.js";
 
 const upload = multer({
   storage: multer.memoryStorage(), // no disk writes — buffers streamed straight to Cloudinary
@@ -39,14 +42,14 @@ const parseJsonField = (value, fieldName) => {
  * multipart/form-data can't carry nested objects/arrays or real numbers, so:
  * - `name`, `description`, `links` arrive as JSON strings and get parsed here.
  * - `coverImage`/`gallery` arrive as actual files (req.files) and get
- *   uploaded to Cloudinary here, replacing req.body.coverImage/gallery with
- *   plain URL strings/objects — exactly the shape project.validation.js and
- *   project.model.js already expect, so createProject/updateProject/
- *   project.service.js never need to know this request was multipart.
+ *   uploaded to Cloudinary here, replacing req.body.coverImage (+
+ *   coverImagePublicId) / gallery with plain URL strings/objects — exactly
+ *   the shape project.validation.js and project.model.js already expect.
  *
  * Gallery semantics: on POST, `gallery` is just the newly uploaded files
- * (order = attachment order). On PATCH, newly uploaded `gallery` files are
- * APPENDED after whatever is already saved on the project — sending new
+ * (order = attachment order). On PATCH, newly uploaded `gallery` files go on
+ * `req.newGalleryItems` and are APPENDED (atomic $push in
+ * project.service.js#updateProject) after whatever is already saved — sending new
  * images never wipes out the existing ones. To remove a specific existing
  * image, use `DELETE /api/projects/:id/gallery/:imageId` instead; there is
  * deliberately no "replace the whole gallery" request shape, since that's
@@ -68,41 +71,61 @@ const parseJsonField = (value, fieldName) => {
  * never from a raw client-supplied field of any kind.
  */
 export const normalizeProjectMultipart = async (req, res, next) => {
+  // Every asset uploaded by this request, so cleanupProjectUploads (below)
+  // can delete them if anything later in the chain fails — Zod validation,
+  // a missing category, a duplicate slug, etc.
+  req.uploadedPublicIds = [];
+
   try {
     if (!req.is("multipart/form-data")) {
       throw new AppError("Expected multipart/form-data.", 400, "INVALID_CONTENT_TYPE");
     }
 
+    // Both carry Cloudinary public_ids that are later passed to
+    // cloudinary.uploader.destroy(), so they may only ever be set from this
+    // function's own upload results, never from a client-supplied field.
     delete req.body.gallery;
+    delete req.body.coverImagePublicId;
 
     const coverImageFile = req.files?.coverImage?.[0];
+    const galleryFiles = req.files?.gallery ?? [];
+
+    // allSettled, not all: if one upload fails, the ones that succeeded
+    // still get recorded for cleanup instead of being orphaned.
+    const results = await Promise.allSettled(
+      [coverImageFile, ...galleryFiles]
+        .filter(Boolean)
+        .map((file) => uploadBufferToCloudinary(file.buffer)),
+    );
+    for (const result of results) {
+      if (result.status === "fulfilled") req.uploadedPublicIds.push(result.value.public_id);
+    }
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed) throw failed.reason;
+
+    const uploaded = results.map((result) => result.value);
+
     if (coverImageFile) {
-      const result = await uploadBufferToCloudinary(coverImageFile.buffer);
-      req.body.coverImage = result.secure_url;
+      const cover = uploaded.shift();
+      req.body.coverImage = cover.secure_url;
+      req.body.coverImagePublicId = cover.public_id;
     }
 
-    const galleryFiles = req.files?.gallery;
-    if (galleryFiles?.length) {
-      const uploaded = await Promise.all(
-        galleryFiles.map((file) => uploadBufferToCloudinary(file.buffer)),
-      );
-
-      // On PATCH (req.params.id present), start numbering after whatever
-      // order already exists so appended images sort after current ones.
-      let existingGallery = [];
-      if (req.params?.id) {
-        const existingProject = await Project.findById(req.params.id).select("gallery").lean();
-        existingGallery = existingProject?.gallery ?? [];
-      }
-      const startOrder = existingGallery.reduce((max, item) => Math.max(max, item.order), 0);
-
-      const newItems = uploaded.map((result, index) => ({
+    if (uploaded.length) {
+      const newItems = uploaded.map((result) => ({
         image: result.secure_url,
         publicId: result.public_id,
-        order: startOrder + index + 1,
       }));
 
-      req.body.gallery = [...existingGallery, ...newItems];
+      if (req.params?.id) {
+        // PATCH: kept off req.body entirely — project.service.js#updateProject
+        // appends these with an atomic $push rather than rewriting the whole
+        // array, so a concurrent PATCH or gallery-image DELETE is never lost
+        // or undone.
+        req.newGalleryItems = newItems;
+      } else {
+        req.body.gallery = newItems.map((item, index) => ({ ...item, order: index + 1 }));
+      }
     }
 
     if (req.body.name !== undefined) req.body.name = parseJsonField(req.body.name, "name");
@@ -115,4 +138,15 @@ export const normalizeProjectMultipart = async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+};
+
+// Router-level error middleware (mounted last in project.routes.js): if a
+// POST/PATCH fails anywhere after its images were already uploaded, delete
+// them from Cloudinary before handing the error on to the central handler,
+// so a rejected request never leaves orphaned assets behind.
+export const cleanupProjectUploads = async (err, req, res, next) => {
+  if (req.uploadedPublicIds?.length) {
+    await destroyCloudinaryAssets(req.uploadedPublicIds);
+  }
+  next(err);
 };
